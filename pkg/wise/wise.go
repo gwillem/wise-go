@@ -271,6 +271,54 @@ func generateUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+// SimulationResult contains the result of a transfer simulation.
+type SimulationResult struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+}
+
+// SimulateTransferProcessing simulates a transfer moving to "processing" status.
+// This is sandbox-only and bypasses SCA.
+func (c *Client) SimulateTransferProcessing(transferID int64) (*SimulationResult, error) {
+	return c.simulateTransfer(transferID, "processing")
+}
+
+// SimulateTransferFundsConverted simulates a transfer moving to "funds_converted" status.
+func (c *Client) SimulateTransferFundsConverted(transferID int64) (*SimulationResult, error) {
+	return c.simulateTransfer(transferID, "funds_converted")
+}
+
+// SimulateTransferOutgoingPayment simulates a transfer moving to "outgoing_payment_sent" status.
+func (c *Client) SimulateTransferOutgoingPayment(transferID int64) (*SimulationResult, error) {
+	return c.simulateTransfer(transferID, "outgoing_payment_sent")
+}
+
+func (c *Client) simulateTransfer(transferID int64, status string) (*SimulationResult, error) {
+	url := fmt.Sprintf("%s/v1/simulation/transfers/%d/%s", c.baseURL, transferID, status)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("simulation error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result SimulationResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) createTransfer(quoteID string, recipientID int64, reference string) (*Transfer, error) {
 	payload := map[string]any{
 		"targetAccount":         recipientID,

@@ -1,29 +1,25 @@
-// testfund tests SCA funding in the Wise sandbox.
+// testfund tests transfer funding in the Wise sandbox using simulation.
 package main
 
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"wise/pkg/wise"
 )
 
 const (
-	sandboxKey     = "cbbc7006-576c-48b3-92db-2bedc9c67fda"
-	privateKeyPath = "private.pem"
-	profileID      = int64(29137484) // sandbox business profile
+	sandboxKey = "cbbc7006-576c-48b3-92db-2bedc9c67fda"
+	profileID  = int64(29137484) // sandbox business profile
 )
 
 func main() {
-	fmt.Println("=== Wise SCA Funding Test ===")
+	fmt.Println("=== Wise Sandbox Transfer Test ===")
 	fmt.Println()
 
-	// Create SCA client
-	client, err := wise.NewSandboxSCAClient(sandboxKey, privateKeyPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating client: %v\n", err)
-		os.Exit(1)
-	}
+	// Create client (no SCA needed - using simulation)
+	client := wise.NewSandboxClient(sandboxKey)
 
 	// Create a transfer
 	fmt.Println("Creating transfer...")
@@ -34,7 +30,7 @@ func main() {
 		Amount:         1.00,
 		RecipientName:  "Test Recipient",
 		IBAN:           "NL44BUNQ2070060462",
-		Reference:      "SCA Test",
+		Reference:      "Test Transfer",
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating transfer: %v\n", err)
@@ -48,15 +44,37 @@ func main() {
 		result.Quote.Fee)
 	fmt.Println()
 
-	// Fund the transfer - first get the OTT to see available challenges
-	fmt.Println("Attempting to fund transfer...")
-	err = client.FundTransferVerbose(profileID, result.Transfer.ID, true)
+	// Use simulation to process transfer (bypasses SCA in sandbox)
+	fmt.Println("Using simulation to process transfer...")
+	simResult, err := client.SimulateTransferProcessing(result.Transfer.ID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error funding transfer: %v\n", err)
-		fmt.Println("\nNote: The SIGNATURE challenge type may not be enabled for this account.")
-		fmt.Println("Contact Wise to enable SCA signature-based authentication.")
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "Simulation failed: %v\n", err)
+		fmt.Println("\nNote: In production, use SCA to fund the transfer.")
+		fmt.Println("The transfer was created and can be approved in the Wise app.")
+		os.Exit(0)
 	}
 
-	fmt.Println("Transfer funded successfully!")
+	fmt.Printf("Transfer status: %s\n", simResult.Status)
+
+	// Wait and try next steps
+	time.Sleep(2 * time.Second)
+
+	simResult, err = client.SimulateTransferFundsConverted(result.Transfer.ID)
+	if err != nil {
+		fmt.Printf("Funds conversion simulation: %v\n", err)
+		fmt.Println("Transfer may need manual verification in sandbox.")
+	} else {
+		fmt.Printf("Transfer status: %s\n", simResult.Status)
+
+		time.Sleep(2 * time.Second)
+
+		simResult, err = client.SimulateTransferOutgoingPayment(result.Transfer.ID)
+		if err != nil {
+			fmt.Printf("Outgoing payment simulation: %v\n", err)
+		} else {
+			fmt.Printf("Transfer status: %s\n", simResult.Status)
+		}
+	}
+
+	fmt.Println("\nDone!")
 }

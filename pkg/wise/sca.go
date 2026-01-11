@@ -221,3 +221,135 @@ func (c *SCAClient) GetOTTStatus(ott string) ([]byte, error) {
 
 	return io.ReadAll(resp.Body)
 }
+
+// TriggerSMS triggers an SMS challenge for the given OTT.
+func (c *SCAClient) TriggerSMS(ott string) error {
+	req, err := http.NewRequest("POST", c.baseURL+"/v1/one-time-token/sms/trigger", nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("One-Time-Token", ott)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("SMS trigger failed %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// VerifySMS verifies an SMS OTP code. In sandbox, the code is always "111111".
+func (c *SCAClient) VerifySMS(ott, otpCode string) error {
+	payload := map[string]string{"otpCode": otpCode}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", c.baseURL+"/v1/one-time-token/sms/verify", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("One-Time-Token", ott)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("SMS verify failed %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// FundTransferWithSMS funds a transfer using SMS verification (sandbox: OTP is "111111").
+func (c *SCAClient) FundTransferWithSMS(profileID, transferID int64, verbose bool) error {
+	url := fmt.Sprintf("%s/v3/profiles/%d/transfers/%d/payments", c.baseURL, profileID, transferID)
+
+	payload := map[string]string{"type": "BALANCE"}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	// Initial request to get OTT
+	if verbose {
+		fmt.Printf("[SMS] Initial request to %s\n", url)
+	}
+	resp, ott, err := c.makeFundRequest(url, body, "")
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden || ott == "" {
+		return fmt.Errorf("expected 403 with OTT, got %d", resp.StatusCode)
+	}
+
+	if verbose {
+		fmt.Printf("[SMS] Got OTT: %s\n", ott)
+		status, _ := c.GetOTTStatus(ott)
+		fmt.Printf("[SMS] OTT Status: %s\n", string(status))
+	}
+
+	// Trigger SMS
+	if verbose {
+		fmt.Println("[SMS] Triggering SMS challenge...")
+	}
+	err = c.TriggerSMS(ott)
+	if err != nil {
+		return fmt.Errorf("triggering SMS: %w", err)
+	}
+
+	// Verify with sandbox OTP
+	if verbose {
+		fmt.Println("[SMS] Verifying with OTP 111111...")
+	}
+	err = c.VerifySMS(ott, "111111")
+	if err != nil {
+		return fmt.Errorf("verifying SMS: %w", err)
+	}
+
+	// Retry the funding request with cleared OTT
+	if verbose {
+		fmt.Println("[SMS] Retrying fund request with cleared OTT...")
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-2FA-Approval", ott)
+
+	resp, err = c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		fmt.Printf("[SMS] Final response: %d\n", resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		fmt.Printf("[SMS] Body: %s\n", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
