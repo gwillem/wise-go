@@ -68,7 +68,7 @@ package main
 
 import (
     "fmt"
-    "wise/pkg/wise"
+    wise "github.com/gwillem/wise-go"
 )
 
 func main() {
@@ -98,17 +98,14 @@ func main() {
 ## Project Structure
 
 ```
+wise.go            Core API client
+sca.go             SCA implementation (for OAuth/mTLS partners)
 cmd/
   wisepay/         CLI tool for creating transfers
+  testfund/        Sandbox transfer simulation test
   gendocs/         Crawler to fetch Wise API docs as Markdown
-pkg/
-  wise/
-    wise.go        Core API client
-    sca.go         SCA support (not working yet)
 docs/
   api-reference/   Wise API documentation in Markdown
-private.pem        RSA private key for SCA
-public.pem         RSA public key (upload to Wise account)
 ```
 
 ## API Documentation

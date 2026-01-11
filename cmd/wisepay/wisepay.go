@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"wise/pkg/wise"
+	wise "github.com/gwillem/wise-go"
 )
 
 func main() {

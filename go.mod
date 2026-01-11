@@ -1,4 +1,4 @@
-module wise
+module github.com/gwillem/wise-go
 
 go 1.25.3
 

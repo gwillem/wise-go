@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"wise/pkg/wise"
+	wise "github.com/gwillem/wise-go"
 )
 
 const (
