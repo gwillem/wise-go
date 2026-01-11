@@ -79,8 +79,12 @@ func SignData(privateKey *rsa.PrivateKey, data []byte) (string, error) {
 }
 
 // FundTransfer funds a transfer from the account balance.
-// This requires SCA which is currently not working.
 func (c *SCAClient) FundTransfer(profileID, transferID int64) error {
+	return c.FundTransferVerbose(profileID, transferID, false)
+}
+
+// FundTransferVerbose funds a transfer with optional debug output.
+func (c *SCAClient) FundTransferVerbose(profileID, transferID int64, verbose bool) error {
 	url := fmt.Sprintf("%s/v3/profiles/%d/transfers/%d/payments", c.baseURL, profileID, transferID)
 
 	payload := map[string]string{"type": "BALANCE"}
@@ -90,17 +94,43 @@ func (c *SCAClient) FundTransfer(profileID, transferID int64) error {
 	}
 
 	// Initial request
+	if verbose {
+		fmt.Printf("[SCA] Initial request to %s\n", url)
+	}
 	resp, ott, err := c.makeFundRequest(url, body, "")
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
+	if verbose {
+		fmt.Printf("[SCA] Response: %d\n", resp.StatusCode)
+		fmt.Printf("[SCA] Headers: %v\n", resp.Header)
+		respBody, _ := io.ReadAll(resp.Body)
+		fmt.Printf("[SCA] Body: %s\n", string(respBody))
+		// Reset body for further processing
+		resp.Body = io.NopCloser(bytes.NewBuffer(respBody))
+	}
+
 	// Handle SCA challenge
 	if resp.StatusCode == http.StatusForbidden && ott != "" {
+		if verbose {
+			fmt.Printf("[SCA] Got OTT: %s\n", ott)
+			// Get OTT status to see available challenges
+			status, err := c.GetOTTStatus(ott)
+			if err == nil {
+				fmt.Printf("[SCA] OTT Status: %s\n", string(status))
+			}
+		}
+
 		ottSignature, err := SignData(c.privateKey, []byte(ott))
 		if err != nil {
 			return fmt.Errorf("signing OTT: %w", err)
+		}
+
+		if verbose {
+			fmt.Printf("[SCA] Signature: %s\n", ottSignature)
+			fmt.Printf("[SCA] Retrying with x-2fa-approval=%s, X-Signature=%s...\n", ott, ottSignature[:40]+"...")
 		}
 
 		resp, _, err = c.makeFundRequestWithSCA(url, body, ott, ottSignature)
@@ -108,6 +138,11 @@ func (c *SCAClient) FundTransfer(profileID, transferID int64) error {
 			return err
 		}
 		defer resp.Body.Close()
+
+		if verbose {
+			fmt.Printf("[SCA] Retry response: %d\n", resp.StatusCode)
+			fmt.Printf("[SCA] Retry headers: %v\n", resp.Header)
+		}
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
@@ -152,8 +187,8 @@ func (c *SCAClient) makeFundRequestWithSCA(url string, body []byte, ott, ottSign
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-2fa-approval", ott)
-	req.Header.Set("x-signature", ottSignature)
+	req.Header.Set("X-2FA-Approval", ott)
+	req.Header.Set("X-Signature", ottSignature)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
