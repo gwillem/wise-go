@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	ProductionBaseURL = "https://api.transferwise.com"
-	SandboxBaseURL    = "https://api.sandbox.transferwise.tech"
+	productionBaseURL = "https://api.transferwise.com"
+	sandboxBaseURL    = "https://api.sandbox.transferwise.tech"
 )
 
 // Client is a Wise API client.
@@ -25,7 +25,7 @@ type Client struct {
 // NewClient creates a new Wise API client for production.
 func NewClient(apiKey string) *Client {
 	return &Client{
-		baseURL:    ProductionBaseURL,
+		baseURL:    productionBaseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 	}
@@ -34,7 +34,7 @@ func NewClient(apiKey string) *Client {
 // NewSandboxClient creates a new Wise API client for sandbox.
 func NewSandboxClient(apiKey string) *Client {
 	return &Client{
-		baseURL:    SandboxBaseURL,
+		baseURL:    sandboxBaseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 	}
@@ -271,29 +271,24 @@ func generateUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-// SimulationResult contains the result of a transfer simulation.
-type SimulationResult struct {
+type simulationResult struct {
 	ID     int64  `json:"id"`
 	Status string `json:"status"`
 }
 
-// SimulateTransferProcessing simulates a transfer moving to "processing" status.
-// This is sandbox-only and bypasses SCA.
-func (c *Client) SimulateTransferProcessing(transferID int64) (*SimulationResult, error) {
+func (c *Client) simulateTransferProcessing(transferID int64) (*simulationResult, error) {
 	return c.simulateTransfer(transferID, "processing")
 }
 
-// SimulateTransferFundsConverted simulates a transfer moving to "funds_converted" status.
-func (c *Client) SimulateTransferFundsConverted(transferID int64) (*SimulationResult, error) {
+func (c *Client) simulateTransferFundsConverted(transferID int64) (*simulationResult, error) {
 	return c.simulateTransfer(transferID, "funds_converted")
 }
 
-// SimulateTransferOutgoingPayment simulates a transfer moving to "outgoing_payment_sent" status.
-func (c *Client) SimulateTransferOutgoingPayment(transferID int64) (*SimulationResult, error) {
+func (c *Client) simulateTransferOutgoingPayment(transferID int64) (*simulationResult, error) {
 	return c.simulateTransfer(transferID, "outgoing_payment_sent")
 }
 
-func (c *Client) simulateTransfer(transferID int64, status string) (*SimulationResult, error) {
+func (c *Client) simulateTransfer(transferID int64, status string) (*simulationResult, error) {
 	url := fmt.Sprintf("%s/v1/simulation/transfers/%d/%s", c.baseURL, transferID, status)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -312,7 +307,7 @@ func (c *Client) simulateTransfer(transferID int64, status string) (*SimulationR
 		return nil, fmt.Errorf("simulation error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result SimulationResult
+	var result simulationResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}

@@ -16,40 +16,37 @@ import (
 	"os"
 )
 
-// SCAClient extends Client with Strong Customer Authentication support.
+// scaClient extends Client with Strong Customer Authentication support.
 // Note: SCA is currently not working due to signature rejection by Wise.
 // This code is preserved for when SCA is enabled on the account.
-type SCAClient struct {
+type scaClient struct {
 	*Client
 	privateKey *rsa.PrivateKey
 }
 
-// NewSCAClient creates a client with SCA support using a private key file.
-func NewSCAClient(apiKey, privateKeyPath string) (*SCAClient, error) {
-	privateKey, err := LoadPrivateKey(privateKeyPath)
+func newSCAClient(apiKey, privateKeyPath string) (*scaClient, error) {
+	privateKey, err := loadPrivateKey(privateKeyPath)
 	if err != nil {
 		return nil, err
 	}
-	return &SCAClient{
+	return &scaClient{
 		Client:     NewClient(apiKey),
 		privateKey: privateKey,
 	}, nil
 }
 
-// NewSandboxSCAClient creates a sandbox client with SCA support.
-func NewSandboxSCAClient(apiKey, privateKeyPath string) (*SCAClient, error) {
-	privateKey, err := LoadPrivateKey(privateKeyPath)
+func newSandboxSCAClient(apiKey, privateKeyPath string) (*scaClient, error) {
+	privateKey, err := loadPrivateKey(privateKeyPath)
 	if err != nil {
 		return nil, err
 	}
-	return &SCAClient{
+	return &scaClient{
 		Client:     NewSandboxClient(apiKey),
 		privateKey: privateKey,
 	}, nil
 }
 
-// LoadPrivateKey loads an RSA private key from a PEM file.
-func LoadPrivateKey(keyPath string) (*rsa.PrivateKey, error) {
+func loadPrivateKey(keyPath string) (*rsa.PrivateKey, error) {
 	keyData, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading private key: %w", err)
@@ -68,8 +65,7 @@ func LoadPrivateKey(keyPath string) (*rsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-// SignData signs data with SHA256 and RSA PKCS1v15, returning base64.
-func SignData(privateKey *rsa.PrivateKey, data []byte) (string, error) {
+func signData(privateKey *rsa.PrivateKey, data []byte) (string, error) {
 	hash := sha256.Sum256(data)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, hash[:])
 	if err != nil {
@@ -78,13 +74,11 @@ func SignData(privateKey *rsa.PrivateKey, data []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(signature), nil
 }
 
-// FundTransfer funds a transfer from the account balance.
-func (c *SCAClient) FundTransfer(profileID, transferID int64) error {
-	return c.FundTransferVerbose(profileID, transferID, false)
+func (c *scaClient) fundTransfer(profileID, transferID int64) error {
+	return c.fundTransferVerbose(profileID, transferID, false)
 }
 
-// FundTransferVerbose funds a transfer with optional debug output.
-func (c *SCAClient) FundTransferVerbose(profileID, transferID int64, verbose bool) error {
+func (c *scaClient) fundTransferVerbose(profileID, transferID int64, verbose bool) error {
 	url := fmt.Sprintf("%s/v3/profiles/%d/transfers/%d/payments", c.baseURL, profileID, transferID)
 
 	payload := map[string]string{"type": "BALANCE"}
@@ -117,13 +111,13 @@ func (c *SCAClient) FundTransferVerbose(profileID, transferID int64, verbose boo
 		if verbose {
 			fmt.Printf("[SCA] Got OTT: %s\n", ott)
 			// Get OTT status to see available challenges
-			status, err := c.GetOTTStatus(ott)
+			status, err := c.getOTTStatus(ott)
 			if err == nil {
 				fmt.Printf("[SCA] OTT Status: %s\n", string(status))
 			}
 		}
 
-		ottSignature, err := SignData(c.privateKey, []byte(ott))
+		ottSignature, err := signData(c.privateKey, []byte(ott))
 		if err != nil {
 			return fmt.Errorf("signing OTT: %w", err)
 		}
@@ -153,7 +147,7 @@ func (c *SCAClient) FundTransferVerbose(profileID, transferID int64, verbose boo
 	return nil
 }
 
-func (c *SCAClient) makeFundRequest(url string, body []byte, ottSignature string) (*http.Response, string, error) {
+func (c *scaClient) makeFundRequest(url string, body []byte, ottSignature string) (*http.Response, string, error) {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, "", err
@@ -179,7 +173,7 @@ func (c *SCAClient) makeFundRequest(url string, body []byte, ottSignature string
 	return resp, ott, nil
 }
 
-func (c *SCAClient) makeFundRequestWithSCA(url string, body []byte, ott, ottSignature string) (*http.Response, string, error) {
+func (c *scaClient) makeFundRequestWithSCA(url string, body []byte, ott, ottSignature string) (*http.Response, string, error) {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, "", err
@@ -203,8 +197,8 @@ func (c *SCAClient) makeFundRequestWithSCA(url string, body []byte, ott, ottSign
 	return resp, newOTT, nil
 }
 
-// GetOTTStatus retrieves the status of a one-time token (for debugging).
-func (c *SCAClient) GetOTTStatus(ott string) ([]byte, error) {
+// getOTTStatus retrieves the status of a one-time token (for debugging).
+func (c *scaClient) getOTTStatus(ott string) ([]byte, error) {
 	req, err := http.NewRequest("GET", c.baseURL+"/v1/one-time-token/status", nil)
 	if err != nil {
 		return nil, err
@@ -222,8 +216,8 @@ func (c *SCAClient) GetOTTStatus(ott string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// TriggerSMS triggers an SMS challenge for the given OTT.
-func (c *SCAClient) TriggerSMS(ott string) error {
+// triggerSMS triggers an SMS challenge for the given OTT.
+func (c *scaClient) triggerSMS(ott string) error {
 	req, err := http.NewRequest("POST", c.baseURL+"/v1/one-time-token/sms/trigger", nil)
 	if err != nil {
 		return err
@@ -246,8 +240,8 @@ func (c *SCAClient) TriggerSMS(ott string) error {
 	return nil
 }
 
-// VerifySMS verifies an SMS OTP code. In sandbox, the code is always "111111".
-func (c *SCAClient) VerifySMS(ott, otpCode string) error {
+// verifySMS verifies an SMS OTP code. In sandbox, the code is always "111111".
+func (c *scaClient) verifySMS(ott, otpCode string) error {
 	payload := map[string]string{"otpCode": otpCode}
 	body, _ := json.Marshal(payload)
 
@@ -274,8 +268,8 @@ func (c *SCAClient) VerifySMS(ott, otpCode string) error {
 	return nil
 }
 
-// FundTransferWithSMS funds a transfer using SMS verification (sandbox: OTP is "111111").
-func (c *SCAClient) FundTransferWithSMS(profileID, transferID int64, verbose bool) error {
+// fundTransferWithSMS funds a transfer using SMS verification (sandbox: OTP is "111111").
+func (c *scaClient) fundTransferWithSMS(profileID, transferID int64, verbose bool) error {
 	url := fmt.Sprintf("%s/v3/profiles/%d/transfers/%d/payments", c.baseURL, profileID, transferID)
 
 	payload := map[string]string{"type": "BALANCE"}
@@ -300,7 +294,7 @@ func (c *SCAClient) FundTransferWithSMS(profileID, transferID int64, verbose boo
 
 	if verbose {
 		fmt.Printf("[SMS] Got OTT: %s\n", ott)
-		status, _ := c.GetOTTStatus(ott)
+		status, _ := c.getOTTStatus(ott)
 		fmt.Printf("[SMS] OTT Status: %s\n", string(status))
 	}
 
@@ -308,7 +302,7 @@ func (c *SCAClient) FundTransferWithSMS(profileID, transferID int64, verbose boo
 	if verbose {
 		fmt.Println("[SMS] Triggering SMS challenge...")
 	}
-	err = c.TriggerSMS(ott)
+	err = c.triggerSMS(ott)
 	if err != nil {
 		return fmt.Errorf("triggering SMS: %w", err)
 	}
@@ -317,7 +311,7 @@ func (c *SCAClient) FundTransferWithSMS(profileID, transferID int64, verbose boo
 	if verbose {
 		fmt.Println("[SMS] Verifying with OTP 111111...")
 	}
-	err = c.VerifySMS(ott, "111111")
+	err = c.verifySMS(ott, "111111")
 	if err != nil {
 		return fmt.Errorf("verifying SMS: %w", err)
 	}
