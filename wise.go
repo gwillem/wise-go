@@ -189,6 +189,7 @@ func (c *Client) createQuote(profileID int64, amount float64, sourceCurrency, ta
 		"targetCurrency": targetCurrency,
 		"sourceAmount":   amount,
 		"profile":        profileID,
+		"preferredPayIn": "BALANCE",
 	}
 
 	body, err := json.Marshal(payload)
